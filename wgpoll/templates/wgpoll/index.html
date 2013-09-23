@@ -1,0 +1,195 @@
+<html>
+	<head>
+<p id="demo"></p>
+  <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <style>
+      html, body, #map-canvas {
+        margin: 0;
+        padding: 0;
+        height: 90%;
+      }
+    </style>
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false"></script>
+    <script>
+var map;
+var responseData;
+var marker;
+var jsonData;
+var flightPath;
+var oldmap;
+var fieldMap;
+var colorbarMap;
+var TIME_INTERVAL_IN_SECS = 10;
+var LAT_MIN = 36.69;
+var LAT_MAX = 37.15981;
+var LON_MIN = -122.56020;
+
+function voteSelected(){
+document.getElementById("message").innerHTML = "";
+}
+
+function initialize() {
+  var mapOptions = {
+    zoom: 10,
+    center: new google.maps.LatLng(36.881471,-122.171871),
+    mapTypeId: google.maps.MapTypeId.SATELLITE
+  };
+  map = new google.maps.Map(document.getElementById('map-canvas'),
+      mapOptions);
+  var goldStar = {
+  path: google.maps.SymbolPath.CIRCLE,
+  scale: 3,
+  strokeColor: "yellow"
+};
+
+imageBounds = new google.maps.LatLngBounds(
+ new google.maps.LatLng(36.61883405115106,-122.51918826855467),
+    new google.maps.LatLng(36.97622643672235,-121.75083194531248));
+
+
+simImageBounds = new google.maps.LatLngBounds(
+ new google.maps.LatLng(LAT_MIN,LON_MIN),
+    new google.maps.LatLng(LAT_MAX,-121.79));
+
+imageBounds = simImageBounds;
+colorbarBounds = new google.maps.LatLngBounds(
+ new google.maps.LatLng(36.65,-122.3),
+    new google.maps.LatLng(36.69,-122));
+
+oldmap = new google.maps.GroundOverlay(
+"http://cinaps.usc.edu/science_data_layer_none.png",    
+imageBounds);
+oldmap.setMap(map);
+
+fieldMap = new google.maps.GroundOverlay(
+"http://cinaps.usc.edu/jd/simoverlay.png",    
+simImageBounds);
+fieldMap.setMap(map);
+
+colorbarMap = new google.maps.GroundOverlay(
+"http://cinaps.usc.edu/jd/simoverlaycolorbarchl.png",    
+colorbarBounds);
+colorbarMap.setMap(map);
+
+	flightPath = new google.maps.Polyline({
+    strokeColor: "yellow",
+    strokeOpacity: 0.5,
+    strokeWeight: 3 
+  });
+
+  flightPath.setMap(map);
+  
+ marker = new google.maps.Marker({
+  position: new google.maps.LatLng(36.881471,-122.171871),
+  icon: goldStar,
+  map: map
+});
+}
+
+google.maps.event.addDomListener(window, 'load', initialize);
+
+    </script>
+
+</head>
+<script src="http://cinaps.usc.edu/jquery.min.js"></script>
+<script>
+var randomnumber=Math.floor(Math.random()*100000);
+var myVar=setInterval(function(){myTimer()},TIME_INTERVAL_IN_SECS*1000);
+function myTimer()
+{
+var d=new Date();
+var t=d.toLocaleTimeString();
+var radioButtons = $("#controlForm input:radio[name='control']");
+var selectedIndex = radioButtons.index(radioButtons.filter(':checked'));
+
+$.get(
+    "vote",
+    {user : randomnumber, value : radioButtons[selectedIndex].value, confidence : 0.99},
+    function(data) {
+		 responseData = data;
+		 jsonData = $.parseJSON(responseData);
+var radioButtons_ = $("#controlForm input:radio[name='control']");
+var selectedIndex_ = radioButtons_.index(radioButtons_.filter(':checked'));
+
+  if(responseData.winner == radioButtons_[selectedIndex_].value && responseData.collison == 1){
+$('#controlForm input:radio[name=control]')[0].checked = true;
+document.getElementById("message").innerHTML = "&nbsp<b>Redacted</b> due to boundary collision. Reselect";
+}       		
+scienceDataStr = '<br/>&nbspCurrent bloom score (0,1600) =<b> ' + responseData.chl + '</b><br/>&nbspCumulative bloom score (past 24 experiment hours) =<b> ' + responseData.sal + '</b>';
+
+                document.getElementById("demo").innerHTML= '<b> Goal: Maximize cumulative bloom score</b><br/>Each minute represents one experiment hour. System updates every 10 seconds (10 experiment minutes)<br/>Wave glider speed = 0.9 m/s, plume speed 0.3 m/s. Grid size= 1km x 1km</br/><hr/>&nbspExperiment hour: ' + responseData.hour + '/48 (loops) <br/>&nbspCurrent wave glider location: '+ responseData.currLat + ',' + responseData.currLon + '<br/>&nbspCurrent votes: unsure=' + responseData.unsure  + ', stop=' + responseData.stop +', north=' + responseData.north + ', south=' + responseData.south + ', east=' + responseData.east + ', west=' + responseData.west + ', <b>WINNER=' + responseData.winner + '</b>' + scienceDataStr;
+
+			marker.setPosition(new google.maps.LatLng(responseData.currLat,responseData.currLon));
+	   
+	   wgTrackLine = $.parseJSON(responseData.wgTrackLine);
+		   	
+	   
+		var wgTrackLineList = [];
+
+		for(var ctr=0;ctr<wgTrackLine.length;ctr++){	
+	   	wgTrackLineList.push(new google.maps.LatLng(wgTrackLine[ctr].fields["latitude"], wgTrackLine[ctr].fields["longitude"]));
+		}
+		flightPath.setPath(wgTrackLineList);
+		var radioButtons = $("#scienceForm input:radio[name='science']");
+var selectedIndex = radioButtons.index(radioButtons.filter(':checked'));
+var scienceFile = "http://cinaps.usc.edu/science_data_layer_" + radioButtons[selectedIndex].value + ".png?cacheBusterNoise=" + Math.floor(Math.random()*1000);
+var fieldFile = "http://cinaps.usc.edu/jd/simoverlay.png?cacheBusterNoise=" + Math.floor(Math.random()*1000);
+var colorbarFile = "http://cinaps.usc.edu/jd/simoverlaycolorbar" + radioButtons[selectedIndex].value + ".png?cacheBusterNoise=" + Math.floor(Math.random()*1000);
+
+var fieldMapOld = fieldMap;
+colorbarMap.setMap(null);
+colorbarMap = new google.maps.GroundOverlay(colorbarFile,    colorbarBounds);
+colorbarMap.setMap(map);
+fieldMap = new google.maps.GroundOverlay(fieldFile,    simImageBounds);
+fieldMap.setMap(map);
+fieldMapOld.setMap(null);
+oldmap.setMap(null);
+oldmap = new google.maps.GroundOverlay(scienceFile,    imageBounds);
+oldmap.setMap(map);
+    }
+);
+}
+function myStopFunction()
+{
+clearInterval(myVar);
+}
+</script>
+<body onload="myTimer()">
+&nbsp Wave glider track (24 experiment hour) <form id="scienceForm" visible=false>
+&nbsp<input type="radio" name="science" value="none" >none </input>
+&nbsp<input type="radio" name="science" value="chl" checked>Bloom score </input>
+&nbsp<input type="radio" name="science" value="sal">Cumulative bloom score </input>
+
+<script type="text/javascript">
+$("input[name=science]").change(function () {
+var radioButtons = $("#scienceForm input:radio[name='science']");
+var selectedIndex = radioButtons.index(radioButtons.filter(':checked'));
+var scienceFile = "http://cinaps.usc.edu/science_data_layer_" + radioButtons[selectedIndex].value + ".png?cacheBusterNoise=" + Math.floor(Math.random()*1000);
+var colorbarFile = "http://cinaps.usc.edu/jd/simoverlaycolorbar" + radioButtons[selectedIndex].value + ".png?cacheBusterNoise=" + Math.floor(Math.random()*1001);
+oldmap.setMap(null);
+oldmap = new google.maps.GroundOverlay(scienceFile,    imageBounds);
+oldmap.setMap(map);
+colorbarMap.setMap(null);
+colorbarMap = new google.maps.GroundOverlay(colorbarFile,    colorbarBounds);
+colorbarMap.setMap(map);
+});
+</script>
+</form>
+&nbsp <b>Your vote</b>:  
+<div id="message"></div>
+<form id="controlForm">
+&nbsp<input type="radio" name="control" value="unsure" checked>unsure</input>
+&nbsp<input type="radio" name="control" value="stop" onclick="voteSelected()">Stop</input>
+&nbsp<input type="radio" name="control" value="north" onclick="voteSelected()">North</input>
+&nbsp<input type="radio" name="control" value="south" onclick="voteSelected()">South</input>
+&nbsp<input type="radio" name="control" value="east" onclick="voteSelected()">East</input>
+&nbsp<input type="radio" name="control" value="west" onclick="voteSelected()">West</input>
+</form>
+<div id="map-canvas"></div>
+</body>
+
+
+
+
+</html>

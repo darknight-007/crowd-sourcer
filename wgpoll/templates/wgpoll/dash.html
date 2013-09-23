@@ -1,0 +1,135 @@
+<html>
+	<head>
+<p id="demo"></p>
+  <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <style>
+      html, body, #map-canvas {
+        margin: 0;
+        padding: 0;
+        height: 90%;
+      }
+    </style>
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false"></script>
+    <script>
+var map;
+var responseData;
+var marker;
+var jsonData;
+var flightPath;
+var oldmap;
+var imageBounds;
+function initialize() {
+  var mapOptions = {
+    zoom: 11,
+    center: new google.maps.LatLng(36.799938,-121.987038),
+    mapTypeId: google.maps.MapTypeId.SATELLITE
+  };
+  map = new google.maps.Map(document.getElementById('map-canvas'),
+      mapOptions);
+
+imageBounds = new google.maps.LatLngBounds(
+ new google.maps.LatLng(36.61883405115106,-122.51918826855467),
+    new google.maps.LatLng(36.97622643672235,-121.75083194531248));
+
+oldmap = new google.maps.GroundOverlay(
+"http://cinaps.usc.edu/science_data_layer_none.png",    
+imageBounds);
+oldmap.setMap(map);
+ 
+  var goldStar = {
+  path: google.maps.SymbolPath.CIRCLE,
+  scale: 4,
+  strokeColor: "yellow"
+};
+	
+	flightPath = new google.maps.Polyline({
+    strokeColor: "yellow",
+    strokeOpacity: 1.0,
+    strokeWeight: 3 
+  });
+
+  flightPath.setMap(map);
+  
+ marker = new google.maps.Marker({
+  position: new google.maps.LatLng(36.799938,-121.987038),
+  icon: goldStar,
+  map: map
+});
+}
+
+google.maps.event.addDomListener(window, 'load', initialize);
+
+    </script>
+
+</head>
+<script src="http://cinaps.usc.edu/jquery.min.js"></script>
+<script>
+var randomnumber=Math.floor(Math.random()*100000);
+var myVar=setInterval(function(){myTimer()},10000);
+function myTimer()
+{
+var d=new Date();
+var t=d.toLocaleTimeString();
+var radioButtons = $("#scienceForm input:radio[name='science']");
+var selectedIndex = radioButtons.index(radioButtons.filter(':checked'));
+
+$.get(
+    "update",
+    {user : randomnumber},
+    function(data) {
+		 responseData = data;
+		 jsonData = $.parseJSON(responseData);
+		 scienceDataStr = '<br/>&nbspSea Surface Temperature:' + responseData.temp + '<br/>&nbspSea Surface Salinity: ' + responseData.sal + '<br/>&nbspSea Surface Chlorophyll: ' + responseData.chl + '<br/>';
+
+		document.getElementById("demo").innerHTML= '&nbspCurrent Location: '+ responseData.currLat + ',' + responseData.currLon + '<br/>&nbspCurrent Votes: unsure=' + responseData.unsure  + ', stop=' + responseData.stop +', north=' + responseData.north + ', south=' + responseData.south + ', east=' + responseData.east + ', west=' + responseData.west + ', WINNER=' + responseData.winner + scienceDataStr;
+       marker.setPosition(new google.maps.LatLng(responseData.currLat,responseData.currLon));
+
+		marker.setPosition(new google.maps.LatLng(responseData.currLat,responseData.currLon));
+	   voteStr = '<br/>&nbspLast few votes (id,IP,vote):';
+	   wgTrackLine = $.parseJSON(responseData.wgTrackLine);
+		votes = $.parseJSON(responseData.votes);	   	
+		for(var ctr0=0;ctr0<votes.length;ctr0++){
+			voteStr = voteStr + '<br/>&nbsp' + votes[ctr0].fields["user"] + ',' + votes[ctr0].fields["value"];
+		}
+	   	document.getElementById("demo").innerHTML = document.getElementById("demo").innerHTML + voteStr;
+		var wgTrackLineList = [];
+
+		for(var ctr=0;ctr<wgTrackLine.length;ctr++){	
+	   	wgTrackLineList.push(new google.maps.LatLng(wgTrackLine[ctr].fields["latitude"], wgTrackLine[ctr].fields["longitude"]));
+		}
+		flightPath.setPath(wgTrackLineList);
+	        }	
+);
+}
+function myStopFunction()
+{
+clearInterval(myVar);
+}
+</script>
+<body onload="myTimer()">
+<form id="scienceForm">
+&nbsp<input type="radio" name="science" value="none" checked >none </input>
+&nbsp<input type="radio" name="science" value="temp" >Temperature </input>
+&nbsp<input type="radio" name="science" value="sal">Salinity </input>
+&nbsp<input type="radio" name="science" value="chl">Chlorophyll </input>
+<script type="text/javascript">
+$("input[name=science]").change(function () {
+var radioButtons = $("#scienceForm input:radio[name='science']");
+var selectedIndex = radioButtons.index(radioButtons.filter(':checked'));
+var scienceFile = "http://cinaps.usc.edu/science_data_layer_" + radioButtons[selectedIndex].value + ".png?cacheBusterNoise=" + Math.floor(Math.random()*1000);
+oldmap.setMap(null);
+oldmap = new google.maps.GroundOverlay(scienceFile,    imageBounds);
+oldmap.setMap(map);
+});
+</script>
+
+
+
+
+</form>
+<div id="map-canvas"></div>
+</body>
+
+
+</html>
