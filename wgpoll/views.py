@@ -1,8 +1,8 @@
 import csv
 from django.template import Context, loader
-from wgpoll.models import Vote
+from wgpoll.models import VoteWP
 from wgpoll.models import WaveGliderState
-from wgpoll.models import Ballot
+from wgpoll.models import BallotWP
 from django.http import HttpResponse, HttpResponseRedirect
 from django.conf import settings
 from django.shortcuts import render_to_response
@@ -22,22 +22,28 @@ def index(request):
     return render_to_response('wgpoll/index.html',RequestContext(request))
     
 def vote(request):
-	value_ = request.GET.get('value')
+	latitude_ = request.GET.get('lat')
+	longitude_ = request.GET.get('lon')
 	user_ = request.GET.get('user')
 	confidence_ = request.GET.get('confidence')
-	p = Vote(date=datetime.now(),user=str(user_)+ ',' + request.META['REMOTE_ADDR'], value=str(value_),confidence=confidence_)
-	p.save() 
 	
+	if not (latitude_ < 20):
+		p = VoteWP(date=datetime.now(),user=str(user_)+ ',' + request.META['REMOTE_ADDR'], latitude=latitude_,longitude=longitude_,confidence=confidence_)
+		p.save() 
+	pollWindowInSecs = 10;
+	endDate = datetime.now()
+	startDate = endDate - timedelta(0,pollWindowInSecs)
+	lastFewVotes = VoteWP.objects.filter(date__gt=startDate, date__lt=endDate)
 			
 	wgState = WaveGliderState.objects.latest('time');
 	trackWindowInSecs = 60*2;
 	endDate = datetime.now()
 	startDate = endDate - timedelta(0,trackWindowInSecs)
 	lastFewUpdates = WaveGliderState.objects.filter(time__gt=startDate, time__lt=endDate)
-
+	voteList = serializers.serialize('json', lastFewVotes, fields=('latitude','longitude'))
 	wgTrackLine = serializers.serialize('json', lastFewUpdates, fields=('latitude','longitude'))
-	latestBallot = Ballot.objects.latest('time')
-	stateUpdate = {'unsure' : latestBallot.unsure, 'stop' : latestBallot.stop,'north' : latestBallot.north, 'south' : latestBallot.south, 'east' :latestBallot.east, 'west' : latestBallot.west, 'winner' : latestBallot.winner}
+	latestBallot = BallotWP.objects.latest('time')
+	stateUpdate = {'latitude' : latestBallot.latitude, 'longitude' : latestBallot.longitude}
 	stateUpdate['currLat'] = '{0:.8g}'.format(wgState.latitude);
 	stateUpdate['currLon'] = '{0:.9g}'.format(wgState.longitude);
 	stateUpdate['wgTrackLine'] = wgTrackLine
@@ -45,9 +51,9 @@ def vote(request):
 	#stateUpdate['min'] = 
 	stateUpdate['collison'] = '{0:.2g}'.format(round(wgState.temp - int(wgState.temp),2)*10)
 	stateUpdate['temp'] = '{0:.4g}'.format(wgState.temp)
-        stateUpdate['sal'] = '{0:.4g}'.format(wgState.sal)
-        stateUpdate['chl'] = '{0:.10g}'.format(round(wgState.chl,0))
-
+	stateUpdate['sal'] = '{0:.4g}'.format(wgState.sal)
+	stateUpdate['chl'] = '{0:.10g}'.format(round(wgState.chl,0))
+	stateUpdate['voteList'] = voteList
 	json = simplejson.dumps(stateUpdate)
 	return HttpResponse(json, mimetype='application/json')
    
@@ -90,7 +96,7 @@ def getballots(request):
         trackWindowInSecs = 60*3600;
         endDate = datetime.now()
         startDate = endDate - timedelta(0,trackWindowInSecs)
-        wgStates = Ballot.objects.filter(time__gt=startDate, time__lt=endDate)
+        wgStates = BallotWP.objects.filter(time__gt=startDate, time__lt=endDate)
 
         for wgState in wgStates:
                 response.write(wgState.winner)

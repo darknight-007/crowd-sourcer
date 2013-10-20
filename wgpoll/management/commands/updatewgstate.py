@@ -1,12 +1,14 @@
 from django.core.management.base import BaseCommand, CommandError
-from wgpoll.models import Vote
+from wgpoll.models import VoteWP
 from wgpoll.models import WaveGliderState
-from wgpoll.models import Ballot 
+from wgpoll.models import BallotWP
 import os
 from datetime import datetime as dt, timedelta
 from django.contrib.gis.geos import Point,Polygon
 from pykml import parser
 import calendar 
+from geopy import Point
+from geopy.distance import distance, VincentyDistance
 
 import math
 import numpy
@@ -14,14 +16,27 @@ from pydap.client import open_url
 import matplotlib.pyplot as plt
 import matplotlib.mlab as mlab
 from matplotlib import mpl
+import scipy
+from scipy.cluster.vq import *
+import pylab
+pylab.close()
+
 class Command(BaseCommand):
 	args = '<vote_id vote_id ...>'
 	help = 'Updates Wave Glider state using voting data'
 
 	def testIfPointInSafeRegion(self, lat,lon):
                 pnt=Point(lat, lon)
+                
                 poly=Polygon(((36.936607018, -122.091610313), (36.958683905,-122.162639595) ,(36.987815521,-122.21506135) ,(37.15981,-122.56020),(36.69,-122.56020) ,(36.54776547,-121.992926099) ,(36.593976161,-121.989732818) ,(36.651878564,-121.95285214) ,(36.661324564,-121.909793526),(36.626844509,-121.880774172) ,(36.700304474,-121.835279292) ,(36.761488333,-121.823453925) ,(36.803637867,-121.812197052) ,(36.876714034,-121.853754579) ,(36.940579814,-121.895316436) ,(36.961193612,-121.929400728),(36.940762557,-121.971105151) ,(36.948092066,-122.002927721) ,(36.936402112,-122.028084038) ,(36.936607018,-122.091610313)))
+                
                 return poly.contains(pnt)
+                
+	def bearing(self,lat1, lon1, lat2, lon2):
+				dLon = lon2 - lon1;
+				y = math.sin(dLon) * math.cos(lat2);
+				x = math.cos(lat1)*math.sin(lat2) - math.sin(lat1)*math.cos(lat2)*math.cos(dLon);
+				return math.degrees(math.atan2(y, x));
 	
 	def handle(self, *args, **options):
 		try:
@@ -39,46 +54,90 @@ class Command(BaseCommand):
 			WG_LAT_DEG_STEP_PER_MIN = 0.0299/NUM_TICKS_PER_MIN
 			WG_LON_DEG_STEP_PER_MIN = 0.034/NUM_TICKS_PER_MIN
 			collided = 0
+			STEP_DIST_MILE = 1.00662;
 			  
 			#DEG_STEP = 0.005 
-			voteCount = {'unsure' : 0, 'stop' : 0, 'north' : 0, 'south': 0, 'east' : 0, 'west' : 0}	
-			latDeltaMap = {'unsure' : 0.0, 'stop' : 0.0, 'north' : WG_LAT_DEG_STEP_PER_MIN, 'south': -WG_LAT_DEG_STEP_PER_MIN, 'east' : 0.0, 'west' : 0.0}	
-			lonDeltaMap = {'unsure' : 0.0, 'stop' : 0.0, 'north' : 0.0, 'south': 0.0, 'east' : WG_LON_DEG_STEP_PER_MIN, 'west' : -WG_LON_DEG_STEP_PER_MIN}	
-			dirMap = {'unsure' : 0.0, 'stop' : 0.0, 'north' : 0.0, 'south': 180.0, 'east' : 90.0, 'west' : 270.0}	
-			speedMap = {'unsure' : 0.0, 'stop' : 0.0, 'north' : 0.01, 'south': 0.01, 'east' : 0.01, 'west' : 0.01}	
-
 			pollWindowInSecs = 10;
-		        endDate = dt.now()
-        		startDate = endDate - timedelta(0,pollWindowInSecs)
-        		lastFew = Vote.objects.filter(date__gt=startDate, date__lt=endDate)
+			endDate = dt.now()
+			startDate = endDate - timedelta(0,pollWindowInSecs)
+			lastFew = VoteWP.objects.filter(date__gt=startDate, date__lt=endDate)
 
-        		maxCount = -99;
-        		maxVote = Vote(date=dt.now(),user=0, value='unsure',confidence=0.99) 
-        		for vote_ in lastFew:
-                        	voteCount[vote_.value] = voteCount[vote_.value] + 1;
-                        	print vote_.value + ':' + str(voteCount[vote_.value])
-				if voteCount[vote_.value] > maxCount and not(vote_.value == 'unsure'):
-                                	maxCount = voteCount[vote_.value];
-                                	maxVote = vote_
-					print vote_.value
+			latAvg = 0.0
+			lonAvg = 0.0
+			newLat = 0.0
+			newLon = 0.0
+			arr = numpy.ndarray(shape=(len(lastFew),2), dtype=float, order='F')
+			ctr = 0;
+			for vote_ in lastFew:
+				latitude_ = vote_.latitude
+				longitude_ = vote_.longitude
+				if not (latitude_ < 1):
+					
+					arr[ctr,1] = latitude_
+					arr[ctr,0] = longitude_
+					ctr = ctr+1
+				else:
+					print 'zero lat detected'
+			
+			winners = [];
+			scoreMax = -1;
+			centerMax = []
+			indMax = -1;
+			for i in range(2,5):
+				res, idx = kmeans2(arr,i)
+				[c,d] = vq(arr, res)
+				ua,uind=numpy.unique(idx,return_inverse=True)
+				count=numpy.bincount(uind)
+				maxCountInd = numpy.argmax(count)
+				maxCount = max(count)
+				center= [res[ua[maxCountInd],0],res[ua[maxCountInd],1]];
+				score = pow(maxCount,2)*(1/numpy.sum(d))*(1/sum(scipy.spatial.distance.pdist(res,'euclidean')))
+				if score > scoreMax:
+					scoreMax = score
+					centerMax = center
+					indMax = i
+				
+			#res, idx = kmeans2(arr,indMax)
 
-			val=maxVote.value
+			
+			# convert groups to rbg 3-tuples.
+			#colors = ([([0,0,0],[0,1,1])[i] for i in idx])
+
+			# show sizes and colors. each color belongs in diff cluster.
+			#pylab.scatter(arr[:,1],arr[:,0],s=20, c=colors)
+			#plt.plot(res[1,1],res[1,0])
+			#pylab.savefig('/var/www/cinaps/jd/clust.png')
+			lonAvg = centerMax[0]
+			latAvg = centerMax[1]
 			latestState = WaveGliderState.objects.latest('time')
-			newLat = latestState.latitude + latDeltaMap[val]
-			newLon = latestState.longitude + lonDeltaMap[val]
-			if not (self.testIfPointInSafeRegion(newLat,newLon)):
-				newLat = latestState.latitude
-				newLon = latestState.longitude
-				collided = 0.1
-			else:
-				collided = 0.0
+			
+			
+			
+			
+			bearing_ = self.bearing(math.radians(latestState.latitude), math.radians(latestState.longitude),math.radians(latAvg),math.radians(lonAvg))
+			print 'bearing=' + str(bearing_)
+			destPoint = VincentyDistance(STEP_DIST_MILE).destination(Point(latestState.latitude,latestState.longitude),  bearing_)
+			hour = 0 
+			print destPoint
+			print destPoint.latitude, destPoint.longitude
+			newLat = destPoint.latitude
+			newLon = destPoint.longitude
+				
+			
+			
+			#if not (self.testIfPointInSafeRegion(newLat,newLon)):
+			#	newLat = latestState.latitude
+			#	newLon = latestState.longitude
+			#	print 'here0'
+			#	collided = 0.1
+			#else:
+			collided = 0.0
 			
 			lon = 360.0+newLon;
+			
 			lonInd = int(math.floor((lon-237.2)/(1.3/131)))
 			latInd = int(math.floor((newLat-35.6)/(1.7/171)))
-			
-			hour = 0 
-			
+				
 			dataset = open_url("http://ourocean.jpl.nasa.gov:8080/thredds/dodsC/MBNowcast/mb_das_20120520_mean.nc")
 			sst = dataset['temp']
 			tempMap = sst.array[hour,0,latInd,lonInd]
@@ -212,9 +271,9 @@ class Command(BaseCommand):
 			print 'end science field generation...' 
 			print dt.now()
 			now_ = dt.now()
-			newWgState = WaveGliderState(time = now_, latitude = newLat,longitude = newLon, speed = speedMap[val], direction = dirMap[val],temp = tick+collided,sal = numpy.sum(chlVec)+chlVal,chl = chlVal)
+			newWgState = WaveGliderState(time = now_, latitude = newLat,longitude = newLon, speed = 0, direction = bearing_,temp = tick+collided,sal = numpy.sum(chlVec)+chlVal,chl = chlVal)
 			newWgState.save()
-			ballot = Ballot(time=endDate,unsure=voteCount['unsure'],stop=voteCount['stop'],north=voteCount['north'],south=voteCount['south'], east=voteCount['east'],west=voteCount['west'],winner=maxVote.value)
+			ballot = BallotWP(time=endDate,latitude = latAvg,longitude=lonAvg		)
         		ballot.save()
 			plt.scatter(newWgState.longitude,newWgState.latitude,1,0,edgecolors='none')
                         plt.xlim([-122.51918826855467,-121.75083194531248])
@@ -235,7 +294,7 @@ class Command(BaseCommand):
                         #fieldLon = newLon
 
 
-		except Vote.DoesNotExist:
+		except VoteWP.DoesNotExist:
 			raise CommandError('Error updating Wave Glider state')
 			
 		self.stdout.write('Succesfully updated Wave Glider state')

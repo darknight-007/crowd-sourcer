@@ -1,7 +1,7 @@
 from django.template import Context, loader
-from wgpoll.models import Vote
+from wgpoll.models import VoteWP
 from wgpoll.models import WaveGliderState
-from wgpoll.models import Ballot
+from wgpoll.models import BallotWP
 from django.http import HttpResponse, HttpResponseRedirect
 from django.conf import settings
 from django.shortcuts import render_to_response
@@ -28,11 +28,11 @@ def update(request):
         startDate = endDate - timedelta(0,trackWindowInSecs)
 	startDatePoll = endDate - timedelta(0,pollHistoryWindowInSecs)
         lastFewUpdates = WaveGliderState.objects.filter(time__gt=startDate, time__lt=endDate)
-	lastFewVotes = Vote.objects.filter(date__gt=startDatePoll, date__lt=endDate)
+	lastFewVotes = VoteWP.objects.filter(date__gt=startDatePoll, date__lt=endDate)
 
         wgTrackLine = serializers.serialize('json', lastFewUpdates, fields=('latitude','longitude'))
         votes = serializers.serialize('json', lastFewVotes, fields=('user','value'))
-	latestBallot = Ballot.objects.latest('time')
+	latestBallot = BallotWP.objects.latest('time')
         stateUpdate = {'unsure' : latestBallot.unsure, 'stop' : latestBallot.stop,'north' : latestBallot.north, 'south' : latestBallot.south, 'east' :latestBallot.east, 'west' : latestBallot.west, 'winner' : latestBallot.winner}
         stateUpdate['currLat'] = wgState.latitude;
         stateUpdate['currLon'] = wgState.longitude;
